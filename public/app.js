@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://gdinatfzwqqxjrozkmtp.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_..."; // کلید Publishable خودت رو اینجا بذار
+const SUPABASE_ANON_KEY = "sb_publishable_9dzG5wwNBQZS9DkFtdvDvg_lQse46j7"; // کلید Publishable خودت رو اینجا بذار
 
 const ROLE_FA = {
   moderator: "گرداننده (مجری)",
