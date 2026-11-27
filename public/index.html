@@ -274,6 +274,30 @@
   .msg { margin-bottom: 6px; line-height: 1.5; }
   .msg.system { color: #fbbf24; font-weight: 600; }
   .msg.mafia-chat { color: #f87171; }
+    .chat-form-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+    width: 100%;
+  }
+  .chat-channel {
+    width: 92px;
+    flex-shrink: 0;
+    padding: 11px 8px;
+    font-size: 12px;
+  }
+  .chat-input {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 11px 12px;
+    font-size: 13px;
+  }
+  .chat-send-btn {
+    flex-shrink: 0;
+    white-space: nowrap;
+    padding: 11px 14px;
+  }
+  
 
   .toast {
     position: fixed; top: 20px; left: 50%;
@@ -420,13 +444,13 @@
       <div class="section-card">
         <div class="section-title">چت اتاق</div>
         <div id="chatBox"></div>
-        <div class="join-row" style="gap:6px;">
-          <select class="select-dark" id="chatChannelSelect" style="max-width:105px;">
+        <div class="chat-form-row">
+          <select class="select-dark chat-channel" id="chatChannelSelect">
             <option value="public">عمومی</option>
             <option value="mafia_night">شب مافیا</option>
           </select>
-          <input type="text" class="room-input" id="chatInput" placeholder="پیام بنویس...">
-          <button class="btn btn-blue" id="sendMsgBtn">ارسال</button>
+          <input type="text" class="room-input chat-input" id="chatInput" placeholder="پیام بنویس...">
+          <button class="btn btn-blue chat-send-btn" id="sendMsgBtn">ارسال</button>
         </div>
       </div>
     </div>
