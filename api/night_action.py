@@ -1,20 +1,63 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import os
 import random
 from datetime import datetime, timezone, timedelta
-from urllib import parse
-from _common import sb_request, post_message, check_win
+from urllib import request, parse
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def sb_request(method: str, path: str, payload=None):
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {
+        "apikey": SERVICE_KEY,
+        "Authorization": f"Bearer {SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=15) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body) if body else None
+
+
+def post_system_msg(room_id: str, text: str):
+    sb_request(
+        "POST",
+        "messages",
+        {
+            "room_id": room_id,
+            "sender_tg_id": 0,
+            "sender_name": "راوی بازی",
+            "channel": "system",
+            "content": text,
+        },
+    )
+
+
+def check_win(players):
+    alive = [p for p in players if p.get("is_alive")]
+    mafia_alive = [p for p in alive if p.get("role") in ("godfather", "mafia", "negotiator")]
+    town_alive = [p for p in alive if p.get("role") not in ("godfather", "mafia", "negotiator")]
+    if len(mafia_alive) == 0:
+        return "town"
+    if len(mafia_alive) >= len(town_alive):
+        return "mafia"
+    return None
 
 
 class handler(BaseHTTPRequestHandler):
-    def _send_json(self, status_code: int, obj: dict):
-        self.send_response(status_code)
+    def _send_json(self, code: int, payload: dict):
+        self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
-        self.wfile.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
     def do_OPTIONS(self):
         self._send_json(200, {"ok": True})
@@ -33,15 +76,13 @@ class handler(BaseHTTPRequestHandler):
             if not rooms:
                 return self._send_json(404, {"error": "اتاق پیدا نشد"})
             room = rooms[0]
+            is_host = actor_tg_id and int(room["host_tg_id"]) == int(actor_tg_id)
 
             players = sb_request("GET", f"players?room_id=eq.{parse.quote(str(room_id))}&select=*")
-            actor = next((p for p in players if int(p["tg_id"]) == int(actor_tg_id)), None) if actor_tg_id else None
-            is_mod_or_host = (actor_tg_id and int(room["host_tg_id"]) == int(actor_tg_id)) or (
-                actor and actor.get("role") == "moderator"
-            )
 
             if action == "set_target":
                 target_tg_id = data.get("target_tg_id")
+                actor = next((p for p in players if int(p["tg_id"]) == int(actor_tg_id)), None)
                 if not actor or not actor.get("is_alive"):
                     return self._send_json(403, {"error": "بازیکن معتبر نیست"})
 
@@ -65,7 +106,6 @@ class handler(BaseHTTPRequestHandler):
                 if role == "detective":
                     target_p = next((p for p in players if int(p["tg_id"]) == int(target_tg_id)), None)
                     t_role = target_p.get("role") if target_p else ""
-                    # پدرخوانده و مذاکره‌کننده برای کارآگاه منفی ظاهر می‌شوند
                     is_pos = t_role == "mafia"
                     verdict = "مثبت (مافیای ساده)" if is_pos else "منفی (شهروند / پدرخوانده / مذاکره‌کننده)"
                     extra_msg = f"🕵️ استعلام {target_p['full_name'] if target_p else ''}: {verdict}"
@@ -73,26 +113,19 @@ class handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"ok": True, "inquiry": extra_msg})
 
             if action == "bots_night":
-                if not is_mod_or_host:
-                    return self._send_json(403, {"error": "فقط گرداننده یا هاست مجاز است"})
-                alive = [p for p in players if p.get("is_alive") and p.get("role") != "moderator"]
-                if not alive:
-                    return self._send_json(400, {"error": "بازیکن زنده‌ای وجود ندارد"})
+                if not is_host:
+                    return self._send_json(403, {"error": "فقط سازنده اتاق مجاز است"})
+                alive = [p for p in players if p.get("is_alive")]
                 for p in alive:
                     if str(p.get("username", "")).startswith("bot_test_"):
-                        role = p.get("role")
-                        if role in ("godfather", "mafia", "negotiator", "doctor", "bodyguard"):
+                        if p.get("role") in ("godfather", "mafia", "negotiator", "doctor", "bodyguard"):
                             target = random.choice(alive)
-                            sb_request(
-                                "PATCH",
-                                f"players?id=eq.{parse.quote(str(p['id']))}",
-                                {"night_target_tg_id": int(target["tg_id"])},
-                            )
+                            sb_request("PATCH", f"players?id=eq.{parse.quote(str(p['id']))}", {"night_target_tg_id": int(target["tg_id"])})
                 return self._send_json(200, {"ok": True})
 
             if action == "resolve_night":
-                if not is_mod_or_host:
-                    return self._send_json(403, {"error": "فقط گرداننده یا هاست می‌تونه شب رو جمع‌بندی کنه"})
+                if not is_host:
+                    return self._send_json(403, {"error": "فقط سازنده اتاق می‌تونه شب رو جمع‌بندی کنه"})
 
                 mafia_targets = [
                     int(p["night_target_tg_id"])
@@ -122,23 +155,15 @@ class handler(BaseHTTPRequestHandler):
                 notes = []
 
                 if mafia_shot and mafia_shot != saved_id:
-                    bg_for_target = next(
-                        (bg for bg in bodyguards if int(bg["night_target_tg_id"]) == mafia_shot),
-                        None,
-                    )
+                    bg_for_target = next((bg for bg in bodyguards if int(bg["night_target_tg_id"]) == mafia_shot), None)
                     if bg_for_target:
-                        # بادیگارد جان فرد محافظت‌شده را می‌گیرد و خودش حذف می‌شود
                         dead_ids.add(int(bg_for_target["tg_id"]))
-                        notes.append(f"بادیگارد {bg_for_target['full_name']} جلوی شلیک را گرفت و خودش حذف شد")
+                        notes.append(f"بادیگارد {bg_for_target['full_name']} جلوی شلیک رو گرفت و خودش حذف شد")
                     else:
                         dead_ids.add(mafia_shot)
 
                 for sn in snipers:
-                    sb_request(
-                        "PATCH",
-                        f"players?id=eq.{parse.quote(str(sn['id']))}",
-                        {"sniper_bullet_left": False},
-                    )
+                    sb_request("PATCH", f"players?id=eq.{parse.quote(str(sn['id']))}", {"sniper_bullet_left": False})
                     t_id = int(sn["night_target_tg_id"])
                     t_player = next((p for p in players if int(p["tg_id"]) == t_id), None)
                     if t_player:
@@ -150,44 +175,28 @@ class handler(BaseHTTPRequestHandler):
                 dead_names = []
                 for p in players:
                     if int(p["tg_id"]) in dead_ids and p.get("is_alive"):
-                        sb_request(
-                            "PATCH",
-                            f"players?id=eq.{parse.quote(str(p['id']))}",
-                            {"is_alive": False},
-                        )
+                        sb_request("PATCH", f"players?id=eq.{parse.quote(str(p['id']))}", {"is_alive": False})
                         p["is_alive"] = False
                         dead_names.append(p["full_name"])
 
-                if dead_names:
-                    report = "صبح شد! دیشب این افراد از بازی خارج شدند: " + "، ".join(dead_names)
-                else:
-                    report = "صبح شد! دیشب هیچ‌کس کشته نشد."
-
+                report = "صبح شد! دیشب این افراد از بازی خارج شدند: " + "، ".join(dead_names) if dead_names else "صبح شد! دیشب هیچ‌کس کشته نشد."
                 if notes:
                     report += " (" + "؛ ".join(notes) + ")"
-
-                post_message(room_id, report, channel="system")
+                post_system_msg(room_id, report)
 
                 winner = check_win(players)
                 if winner:
-                    sb_request(
-                        "PATCH",
-                        f"rooms?id=eq.{parse.quote(str(room_id))}",
-                        {"status": "ended", "phase_ends_at": None},
-                    )
+                    sb_request("PATCH", f"rooms?id=eq.{parse.quote(str(room_id))}", {"status": "ended", "phase_ends_at": None})
                     win_msg = "تیم شهروند برنده بازی شد!" if winner == "town" else "تیم مافیا برنده بازی شد!"
-                    post_message(room_id, f"🏆 پایان بازی! {win_msg}", channel="system")
+                    post_system_msg(room_id, f"🏆 پایان بازی! {win_msg}")
                     return self._send_json(200, {"ok": True, "winner": winner})
 
                 next_round = int(room.get("round_number", 1)) + 1
                 ends_at = (datetime.now(timezone.utc) + timedelta(seconds=120)).isoformat()
-                sb_request(
-                    "PATCH",
-                    f"rooms?id=eq.{parse.quote(str(room_id))}",
-                    {"status": "day_talk", "round_number": next_round, "phase_ends_at": ends_at},
-                )
+                sb_request("PATCH", f"rooms?id=eq.{parse.quote(str(room_id))}", {"status": "day_talk", "round_number": next_round, "phase_ends_at": ends_at})
                 return self._send_json(200, {"ok": True, "status": "day_talk", "round": next_round})
 
             return self._send_json(400, {"error": "action نامعتبر است"})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
+                    
