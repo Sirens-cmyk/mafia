@@ -1,7 +1,41 @@
 from http.server import BaseHTTPRequestHandler
 import json
-from urllib import parse
-from _common import sb_request, post_system_msg, get_roles, VALID_SIZES, next_phase_iso
+import os
+import random
+from datetime import datetime, timezone, timedelta
+from urllib import request, parse
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+MAFIA_ROLES = ("godfather", "mafia", "negotiator")
+VALID_SIZES = (8, 10, 12)
+
+
+def sb_request(method: str, path: str, payload=None):
+    if not SUPABASE_URL or not SERVICE_KEY:
+        raise RuntimeError("متغیرهای SUPABASE_URL یا SUPABASE_SERVICE_ROLE_KEY در Vercel تنظیم نشده‌اند")
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {
+        "apikey": SERVICE_KEY,
+        "Authorization": f"Bearer {SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=15) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body) if body else None
+
+
+def get_roles(count: int):
+    if count == 8:
+        return ["godfather", "mafia", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen"]
+    if count == 10:
+        return ["godfather", "mafia", "negotiator", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen", "citizen"]
+    if count == 12:
+        return ["godfather", "mafia", "negotiator", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen", "citizen", "citizen", "citizen"]
+    return None
 
 
 class handler(BaseHTTPRequestHandler):
@@ -37,12 +71,13 @@ class handler(BaseHTTPRequestHandler):
                 return self._send_json(403, {"error": "فقط سازنده اتاق مجاز به شروع بازی است"})
 
             players = sb_request("GET", f"players?room_id=eq.{parse.quote(str(room_id))}&order=joined_at.asc")
-            cap = int(room.get("max_players") or len(players))
+            raw_cap = room.get("max_players")
+            cap = int(raw_cap) if raw_cap in VALID_SIZES else len(players)
+
             if len(players) not in VALID_SIZES or len(players) != cap:
                 return self._send_json(400, {"error": f"میز استاندارد باید دقیقاً {cap} بازیکن (۸، ۱۰ یا ۱۲ نفر) داشته باشد"})
 
             roles_pool = get_roles(len(players))
-            import random
             shuffled = roles_pool[:]
             random.shuffle(shuffled)
 
@@ -60,16 +95,30 @@ class handler(BaseHTTPRequestHandler):
                     },
                 )
 
+            ends_at = (datetime.now(timezone.utc) + timedelta(seconds=90)).isoformat()
             sb_request(
                 "PATCH",
                 f"rooms?id=eq.{parse.quote(str(room_id))}",
                 {
                     "status": "day_talk",
                     "round_number": 1,
-                    "phase_ends_at": next_phase_iso(90),
+                    "phase_ends_at": ends_at,
                 },
             )
-            post_system_msg(room_id, f"بازی استاندارد {len(players)} نفره آغاز شد! روز اول (۹۰ ثانیه گفتگو) شروع شد.")
+
+            sb_request(
+                "POST",
+                "messages",
+                {
+                    "room_id": room_id,
+                    "sender_tg_id": 0,
+                    "sender_name": "راوی بازی",
+                    "channel": "system",
+                    "content": f"بازی استاندارد {len(players)} نفره آغاز شد! روز اول (۹۰ ثانیه گفتگو) شروع شد.",
+                },
+            )
+
             return self._send_json(200, {"ok": True, "status": "day_talk"})
         except Exception as e:
-            return self._send_json(500, {"error": str(e)})
+            return self._send_json(500, {"error": f"خطای سرور: {str(e)}"})
+            
