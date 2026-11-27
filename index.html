@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>بازی کلاسیک مافیا - استاندارد حرفه‌ای</title>
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap');
+
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: 'Vazirmatn', sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  :root {
+    --bg1: #060a12;
+    --card: rgba(14, 22, 38, 0.9);
+    --accent: #22d3ee;
+    --accent-rgb: 34, 211, 238;
+    --text: #e8eef7;
+    --muted: #7a8ba3;
+  }
+
+  body {
+    background: var(--bg1);
+    color: var(--text);
+    min-height: 100vh;
+    overflow-x: hidden;
+    transition: background 2s ease;
+  }
+
+  .bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    transition: opacity 2s ease;
+  }
+
+  .bg-night {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 30% 10%, rgba(20, 60, 110, 0.42) 0%, transparent 55%),
+      radial-gradient(ellipse at 80% 90%, rgba(10, 30, 60, 0.48) 0%, transparent 50%),
+      linear-gradient(180deg, #070c18 0%, #060a12 55%, #04080f 100%);
+    opacity: 1;
+  }
+
+  .bg-day {
+    position: absolute;
+    inset: 0;
+    background:
+      radial-gradient(ellipse at 50% -10%, rgba(255, 180, 60, 0.28) 0%, transparent 55%),
+      radial-gradient(ellipse at 15% 90%, rgba(60, 40, 10, 0.25) 0%, transparent 45%),
+      linear-gradient(180deg, #1c2640 0%, #151e30 45%, #0f1726 100%);
+    opacity: 0;
+  }
+
+  body.day .bg-night { opacity: 0; }
+  body.day .bg-day { opacity: 1; }
+  body.day {
+    --bg1: #151e30;
+    --card: rgba(24, 36, 58, 0.93);
+    --accent: #fbbf24;
+    --accent-rgb: 251, 191, 36;
+  }
+
+  .lightning-flash {
+    position: fixed;
+    inset: 0;
+    background: #fff;
+    opacity: 0;
+    pointer-events: none;
+    z-index: 10000;
+  }
+  .lightning-flash.active { animation: lightningStrike 0.85s ease-out; }
+  @keyframes lightningStrike {
+    0% { opacity: 0; }
+    10% { opacity: 0.95; }
+    25% { opacity: 0.15; }
+    40% { opacity: 0.85; }
+    100% { opacity: 0; }
+  }
+
+  .shake { animation: screenShake 0.6s ease both; }
+  @keyframes screenShake {
+    15%, 75% { transform: translate(-4px, 2px); }
+    30%, 60% { transform: translate(4px, -2px); }
+    45% { transform: translate(-3px, -1px); }
+  }
+
+  .container {
+    position: relative;
+    z-index: 1;
+    max-width: 480px;
+    margin: 0 auto;
+    padding: 14px 16px 56px;
+    min-height: 100vh;
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 2px 16px;
+  }
+  .header-title { font-size: 17.5px; font-weight: 700; }
+  .header-btn {
+    width: 34px; height: 34px;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 10px; color: var(--muted); font-size: 18px; cursor: pointer;
+  }
+  .header-btn:hover { background: rgba(255,255,255,0.06); color: var(--text); }
+
+  .identity-card {
+    background: linear-gradient(145deg, rgba(22, 34, 56, 0.92), rgba(14, 22, 40, 0.96));
+    border: 1px solid rgba(100, 160, 220, 0.18);
+    border-radius: 20px;
+    padding: 14px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+    box-shadow: 0 10px 34px rgba(0,0,0,0.38);
+  }
+
+  .avatar {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #06b6d4);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 21px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  body.day .avatar { background: linear-gradient(135deg, #d97706, #f59e0b); }
+
+  .identity-info { flex: 1; min-width: 0; }
+  .player-name { font-size: 16px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .online-dot {
+    width: 8px; height: 8px; background: #22c55e; border-radius: 50%;
+    box-shadow: 0 0 8px #22c55e; display: inline-block;
+  }
+  .player-id { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .role-badge {
+    background: linear-gradient(135deg, #5b2c91, #7b3fe4);
+    color: #fff; font-size: 11.5px; font-weight: 600;
+    padding: 6px 11px; border-radius: 18px; white-space: nowrap;
+  }
+
+  .section-card {
+    background: var(--card);
+    border: 1px solid rgba(100, 160, 200, 0.14);
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 14px;
+  }
+  .section-title {
+    font-size: 14.5px; font-weight: 600; margin-bottom: 14px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title::before {
+    content: ''; width: 4px; height: 17px;
+    background: linear-gradient(180deg, var(--accent), #0284c7);
+    border-radius: 3px;
+  }
+
+  .size-label { font-size: 12.5px; color: var(--muted); margin-bottom: 9px; }
+  .size-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+  .chip {
+    padding: 8px 13px; border-radius: 12px; font-size: 12.5px; font-weight: 500;
+    background: rgba(30, 42, 64, 0.9); border: 1px solid rgba(100, 140, 180, 0.16);
+    color: #c0cce0; cursor: pointer; transition: all 0.2s;
+  }
+  .chip.active {
+    background: rgba(var(--accent-rgb), 0.18);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn {
+    border: none; border-radius: 13px; padding: 12px 14px;
+    font-size: 13px; font-weight: 600; color: #fff; cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-green { background: linear-gradient(135deg, #10b981, #059669); width: 100%; }
+  .btn-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); padding: 0 20px; }
+  .btn-orange { background: linear-gradient(135deg, #f59e0b, #d97706); }
+  .btn-teal { background: linear-gradient(135deg, #14b8a6, #0d9488); }
+  .btn-gray { background: rgba(40, 52, 72, 0.92); color: #cbd5e1; border: 1px solid rgba(100,140,180,0.16); }
+  .btn-red { background: linear-gradient(135deg, #ef4444, #dc2626); }
+
+  .divider {
+    display: flex; align-items: center; gap: 12px;
+    margin: 16px 0 14px; color: var(--muted); font-size: 12px;
+  }
+  .divider::before, .divider::after {
+    content: ''; flex: 1; height: 1px; background: rgba(100,140,180,0.2);
+  }
+
+  .join-row { display: flex; gap: 10px; }
+  .room-input, .select-dark {
+    flex: 1; background: rgba(10, 16, 28, 0.88);
+    border: 1px solid rgba(100, 160, 200, 0.18); border-radius: 13px;
+    padding: 12px 14px; color: var(--text); font-size: 13.5px; outline: none;
+  }
+
+  .rules-box {
+    background: rgba(10, 16, 28, 0.65);
+    border: 1px dashed rgba(100, 160, 200, 0.22);
+    border-radius: 14px;
+    padding: 12px 14px;
+    font-size: 12px;
+    line-height: 1.8;
+    color: #94a3b8;
+    margin-top: 12px;
+  }
+
+  .phase-wrap { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+  .phase-badge {
+    display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px;
+    border-radius: 20px; font-size: 12.5px; font-weight: 600;
+    background: rgba(var(--accent-rgb), 0.14); color: var(--accent);
+    border: 1px solid rgba(var(--accent-rgb), 0.3);
+  }
+  .phase-progress { flex: 1; height: 4px; background: rgba(255,255,255,0.08); border-radius: 4px; margin: 0 12px; overflow: hidden; }
+  .phase-bar { height: 100%; width: 0%; background: var(--accent); transition: width 0.6s linear; }
+
+  .info-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 12px; }
+  .info-card {
+    background: var(--card); border: 1px solid rgba(100, 160, 200, 0.14);
+    border-radius: 14px; padding: 10px; text-align: center;
+  }
+  .info-label { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+  .info-value { font-size: 15px; font-weight: 700; color: var(--accent); }
+
+  .actions-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+
+  .players-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .players-count { font-size: 12.5px; color: var(--muted); }
+  .players-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+
+  .player-card {
+    background: rgba(18, 28, 46, 0.78); border: 1px solid rgba(100, 160, 200, 0.12);
+    border-radius: 14px; padding: 10px; display: flex; align-items: center; gap: 9px;
+  }
+  .player-card.dead { opacity: 0.4; filter: grayscale(0.75); }
+  .player-card.eliminating { animation: eliminateFX 1.05s ease-out forwards; }
+  @keyframes eliminateFX {
+    0% { transform: scale(1); }
+    25% { transform: scale(1.08); filter: brightness(2.5); }
+    60% { transform: scale(0.92); filter: brightness(0.25); }
+    100% { transform: scale(1); opacity: 0.4; }
+  }
+
+  .player-avatar {
+    width: 34px; height: 34px; border-radius: 50%;
+    background: linear-gradient(135deg, #0f766e, #14b8a6);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12.5px; font-weight: 700; color: #fff; flex-shrink: 0;
+  }
+  .player-card-name { font-size: 12.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .player-status { font-size: 11px; color: var(--accent); }
+  .player-card.dead .player-status { color: #94a3b8; }
+
+  #chatBox {
+    height: 170px; overflow-y: auto; background: rgba(10, 16, 28, 0.75);
+    border-radius: 13px; padding: 10px; margin-bottom: 10px; font-size: 12px;
+  }
+  .msg { margin-bottom: 6px; line-height: 1.5; }
+  .msg.system { color: #fbbf24; font-weight: 600; }
+  .msg.mafia-chat { color: #f87171; }
+
+  .toast {
+    position: fixed; top: 20px; left: 50%;
+    transform: translateX(-50%) translateY(-80px);
+    background: rgba(15, 23, 42, 0.96); border: 1px solid rgba(var(--accent-rgb), 0.45);
+    color: var(--text); padding: 11px 20px; border-radius: 14px;
+    font-size: 13px; font-weight: 600; z-index: 9000; opacity: 0;
+    transition: all 0.35s ease; pointer-events: none;
+  }
+  .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+
+  .hidden { display: none; }
+</style>
+</head>
+<body class="night">
+  <div class="bg">
+    <div class="bg-night"></div>
+    <div class="bg-day"></div>
+  </div>
+  <div class="lightning-flash" id="flash"></div>
+  <div class="toast" id="toast"></div>
+
+  <div class="container" id="main">
+    <div class="header">
+      <div class="header-btn" id="topBackBtn">✕</div>
+      <div class="header-title">بازی کلاسیک مافیا</div>
+      <div class="header-btn">⋮</div>
+    </div>
+
+    <div class="identity-card">
+      <div class="avatar" id="myAvatar">Х</div>
+      <div class="identity-info">
+        <div class="player-name">
+          <span id="myName">Хусеин</span>
+          <span class="online-dot"></span>
+        </div>
+        <div class="player-id" id="myIdText">ID: 8464735969</div>
+      </div>
+      <div class="role-badge hidden" id="myRoleBadge"></div>
+    </div>
+
+    <!-- LOBBY SECTION (اتاق ۶ نفره حذف شده؛ میزهای استاندارد ۸، ۱۰ و ۱۲ نفره) -->
+    <div id="lobbySection">
+      <div class="section-card">
+        <div class="section-title">ساخت یا ورود به میز استاندارد مافیا</div>
+
+        <div class="size-label">تعداد استاندارد بازیکنان میز</div>
+        <div class="size-chips" id="sizeChips">
+          <div class="chip active" data-size="8">۸ نفره (استاندارد)</div>
+          <div class="chip" data-size="10">۱۰ نفره (حرفه‌ای)</div>
+          <div class="chip" data-size="12">۱۲ نفره (فول‌میز)</div>
+        </div>
+
+        <div class="size-label">نوع میز و ورود</div>
+        <div class="size-chips" id="modeChips">
+          <div class="chip active" data-mode="free">میز رایگان (تست)</div>
+          <div class="chip" data-mode="stars20">میز ۲۰ استارز (صندوق جایزه)</div>
+        </div>
+
+        <button class="btn btn-green" id="createRoomBtn">ساخت اتاق استاندارد</button>
+
+        <div class="divider">یا ورود با کد</div>
+
+        <div class="join-row">
+          <button class="btn btn-blue" id="joinRoomBtn">ورود</button>
+          <input type="text" class="room-input" id="roomCodeInput" placeholder="کد اتاق (مثلاً MAF123)" maxlength="10" autocomplete="off">
+        </div>
+
+        <div class="rules-box">
+          <strong>قوانین سختگیرانه میزهای استاندارد:</strong><br>
+          • میزها فقط در ظرفیت‌های استاندارد <strong>۸، ۱۰ و ۱۲ نفره</strong> فعال می‌شوند.<br>
+          • بازی کاملاً خودکار و بدون دخالت مجری انسانی اداره می‌شود.<br>
+          • بازیکن حذف‌شده (روز یا شب) بلافاصله ساکت شده و حق رای/اکشن ندارد.<br>
+          • رای‌گیری مساوی منجر به خروج کسی نمی‌شود؛ تک‌تیرانداز فقط یک تیر دارد و در شلیک اشتباه خودش حذف می‌شود.<br>
+          • در میز ۲۰ استارز، ۱۰ استارز هر بازیکن به صندوق جایزه تیم برنده واریز می‌شود.
+        </div>
+      </div>
+    </div>
+
+    <!-- ROOM / GAME SECTION -->
+    <div id="roomSection" class="hidden">
+      <div class="phase-wrap">
+        <div class="phase-badge">
+          <span id="phaseIcon">🌙</span>
+          <span id="phaseText">لابی</span>
+        </div>
+        <div class="phase-progress">
+          <div class="phase-bar" id="phaseBar"></div>
+        </div>
+      </div>
+
+      <div class="info-row">
+        <div class="info-card">
+          <div class="info-label">تایمر فاز</div>
+          <div class="info-value" id="timerText">--:--</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">کد اتاق</div>
+          <div class="info-value" id="roomCodeText">-</div>
+        </div>
+        <div class="info-card">
+          <div class="info-label">صندوق جایزه</div>
+          <div class="info-value" id="prizePoolText">رایگان</div>
+        </div>
+      </div>
+
+      <div class="actions-grid">
+        <button class="btn btn-teal" id="copyInviteBtn">کپی لینک دعوت</button>
+        <button class="btn btn-orange hidden" id="addBotsBtn">پر کردن بات تستی</button>
+        <button class="btn btn-green hidden" id="startGameBtn">شروع بازی</button>
+        <button class="btn btn-red hidden" id="startVoteBtn">شروع رای‌گیری</button>
+        <button class="btn btn-orange hidden" id="botsVoteBtn">رای خودکار بات‌ها</button>
+        <button class="btn btn-gray hidden" id="finishVoteBtn">پایان رای‌گیری و شب</button>
+        <button class="btn btn-orange hidden" id="botsNightBtn">اکشن خودکار بات‌ها</button>
+        <button class="btn btn-green hidden" id="resolveNightBtn">صبح شدن</button>
+        <button class="btn btn-gray" id="leaveRoomBtn">خروج</button>
+      </div>
+
+      <div class="section-card hidden" id="voteSection">
+        <div class="section-title">رای‌گیری روز</div>
+        <div class="join-row">
+          <button class="btn btn-red" id="castVoteBtn">ثبت رای</button>
+          <select class="select-dark" id="voteTargetSelect"></select>
+        </div>
+      </div>
+
+      <div class="section-card hidden" id="nightSection">
+        <div class="section-title">اکشن شب</div>
+        <div class="join-row">
+          <button class="btn btn-blue" id="nightActionBtn">ثبت هدف</button>
+          <select class="select-dark" id="nightTargetSelect"></select>
+        </div>
+        <div id="inquiryResult" style="margin-top:8px;font-size:12.5px;color:#38bdf8;"></div>
+      </div>
+
+      <div class="section-card">
+        <div class="players-header">
+          <div class="section-title" style="margin:0;">بازیکن‌ها</div>
+          <div class="players-count"><span id="playerCount">0</span> / <span id="maxPlayerCount">8</span></div>
+        </div>
+        <div class="players-grid" id="playersList"></div>
+      </div>
+
+      <div class="section-card">
+        <div class="section-title">چت اتاق</div>
+        <div id="chatBox"></div>
+        <div class="join-row" style="gap:6px;">
+          <select class="select-dark" id="chatChannelSelect" style="max-width:105px;">
+            <option value="public">عمومی</option>
+            <option value="mafia_night">شب مافیا</option>
+          </select>
+          <input type="text" class="room-input" id="chatInput" placeholder="پیام بنویس...">
+          <button class="btn btn-blue" id="sendMsgBtn">ارسال</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
