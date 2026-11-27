@@ -1,20 +1,62 @@
 from http.server import BaseHTTPRequestHandler
 import json
+import os
 import random
 from datetime import datetime, timezone, timedelta
-from urllib import parse
-from _common import sb_request, post_message, get_roles_for_count
+from urllib import request, parse
+
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY", "")
+
+
+def sb_request(method: str, path: str, payload=None):
+    url = f"{SUPABASE_URL}/rest/v1/{path}"
+    data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {
+        "apikey": SERVICE_KEY,
+        "Authorization": f"Bearer {SERVICE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    req = request.Request(url, data=data, headers=headers, method=method)
+    with request.urlopen(req, timeout=15) as resp:
+        body = resp.read().decode("utf-8")
+        return json.loads(body) if body else None
+
+
+def post_system_msg(room_id: str, text: str):
+    sb_request(
+        "POST",
+        "messages",
+        {
+            "room_id": room_id,
+            "sender_tg_id": 0,
+            "sender_name": "راوی بازی",
+            "channel": "system",
+            "content": text,
+        },
+    )
+
+
+def get_roles(count: int):
+    if count == 8:
+        return ["godfather", "mafia", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen"]
+    if count == 10:
+        return ["godfather", "mafia", "negotiator", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen", "citizen"]
+    if count == 12:
+        return ["godfather", "mafia", "negotiator", "detective", "doctor", "sniper", "bodyguard", "citizen", "citizen", "citizen", "citizen", "citizen"]
+    return None
 
 
 class handler(BaseHTTPRequestHandler):
-    def _send_json(self, status_code: int, obj: dict):
-        self.send_response(status_code)
+    def _send_json(self, code: int, payload: dict):
+        self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
-        self.wfile.write(json.dumps(obj, ensure_ascii=False).encode("utf-8"))
+        self.wfile.write(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
 
     def do_OPTIONS(self):
         self._send_json(200, {"ok": True})
@@ -36,26 +78,18 @@ class handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "اتاق پیدا نشد"})
             room = rooms[0]
 
+            if int(room["host_tg_id"]) != int(actor_tg_id):
+                return self._send_json(403, {"error": "فقط سازنده اتاق می‌تونه بازی رو شروع کنه"})
+
             players = sb_request("GET", f"players?room_id=eq.{parse.quote(str(room_id))}&order=joined_at.asc")
-            actor = next((p for p in players if int(p["tg_id"]) == int(actor_tg_id)), None)
-
-            is_host = int(room["host_tg_id"]) == int(actor_tg_id)
-            is_mod = actor and actor.get("role") == "moderator"
-            if not (is_host or is_mod):
-                return self._send_json(403, {"error": "فقط گرداننده یا سازنده اتاق می‌تونه بازی رو شروع کنه"})
-
-            game_players = [p for p in players if p.get("role") != "moderator"]
-            roles_pool = get_roles_for_count(len(game_players))
+            roles_pool = get_roles(len(players))
             if not roles_pool:
-                return self._send_json(
-                    400,
-                    {"error": f"تعداد بازیکنان باید ۸، ۱۰ یا ۱۲ نفر باشد (الان {len(game_players)} نفر هستند)"}
-                )
+                return self._send_json(400, {"error": f"تعداد بازیکن‌ها باید ۸، ۱۰ یا ۱۲ نفر باشه (الان {len(players)} نفر هستن)"})
 
             shuffled = roles_pool[:]
             random.shuffle(shuffled)
 
-            for player, role in zip(game_players, shuffled):
+            for player, role in zip(players, shuffled):
                 sb_request(
                     "PATCH",
                     f"players?id=eq.{parse.quote(str(player['id']))}",
@@ -80,12 +114,12 @@ class handler(BaseHTTPRequestHandler):
                 },
             )
 
-            post_message(
+            post_system_msg(
                 room_id,
-                f"بازی {len(game_players)} نفره شروع شد! نقش‌ها مخفیانه پخش شدن؛ روز اول (۱۲۰ ثانیه بحث و چالش) آغاز شد.",
-                channel="system",
+                f"بازی {len(players)} نفره شروع شد! نقش‌ها پخش شدند؛ روز اول (۱۲۰ ثانیه بحث) آغاز شد.",
             )
 
-            return self._send_json(200, {"ok": True, "status": "day_talk", "player_count": len(game_players)})
+            return self._send_json(200, {"ok": True, "status": "day_talk"})
         except Exception as e:
             return self._send_json(500, {"error": str(e)})
+            
