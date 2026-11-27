@@ -1,5 +1,5 @@
 const SUPABASE_URL = "https://gdinatfzwqqxjrozkmtp.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_..."; // کلید Publishable خودت رو قرار بده
+const SUPABASE_ANON_KEY = "sb_publishable_9dzG5wwNBQZS9DkFtdvDvg_lQse46j7"; // کلید Publishable خودت رو قرار بده
 
 const ROLE_FA = {
   godfather: "پدرخوانده (مافیا)",
