@@ -129,10 +129,15 @@ async function joinRoomByObject(room) {
 
   const fee = Number(room.entry_fee_stars || 0);
 if (fee >= 20 && !alreadyIn) {
-  const { data: usedCredit } = await sb.rpc("consume_wallet_for_room", {
+  const { data: rpcRes } = await sb.rpc("consume_wallet_for_room", {
     p_tg_id: tgUser.id,
     p_cost: fee
   });
+
+  const usedCredit =
+    rpcRes === true ||
+    rpcRes?.used === true ||
+    rpcRes?.ok === true;
 
   if (!usedCredit) {
     const paid = await requestStarsInvoice();
@@ -144,10 +149,11 @@ if (fee >= 20 && !alreadyIn) {
   }
 
   await sb.from("rooms").update({
-    prize_pool_stars: Number(room.prize_pool_stars || 0) + 10,
-    admin_revenue_stars: Number(room.admin_revenue_stars || 0) + 10
+    prize_pool_stars: Number(room.prize_pool_stars || 0) + fee,
+    admin_revenue_stars: Number(room.admin_revenue_stars || 0) + fee
   }).eq("id", room.id);
 }
+
   
 
   const { error: pErr } = await sb.from("players").upsert(
