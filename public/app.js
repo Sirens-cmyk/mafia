@@ -1,5 +1,7 @@
 const SUPABASE_URL = "https://gdinatfzwqqxjrozkmtp.supabase.co";
 const SUPABASE_ANON_KEY = "sb_publishable_9dzG5wwNBQZS9DkFtdvDvg_lQse46j7"; // کلید Publishable خودت رو قرار بده
+const STARS_INVOICE_URL = "https://t.me/$3_iuhhbDUVCkCAAATIgP4ueLkb0";
+window.STARS_INVOICE_URL = STARS_INVOICE_URL;
 
 const ROLE_FA = {
   godfather: "پدرخوانده (مافیا)",
@@ -126,15 +128,27 @@ async function joinRoomByObject(room) {
   }
 
   const fee = Number(room.entry_fee_stars || 0);
-  if (fee >= 20 && !alreadyIn) {
-    if (tg?.openInvoice && window.STARS_INVOICE_URL) {
-      tg.openInvoice(window.STARS_INVOICE_URL);
+if (fee >= 20 && !alreadyIn) {
+  const { data: usedCredit } = await sb.rpc("consume_wallet_for_room", {
+    p_tg_id: tgUser.id,
+    p_cost: fee
+  });
+
+  if (!usedCredit) {
+    const paid = await requestStarsInvoice();
+    if (!paid) {
+      return;
     }
-    await sb.from("rooms").update({
-      prize_pool_stars: Number(room.prize_pool_stars || 0) + 10,
-      admin_revenue_stars: Number(room.admin_revenue_stars || 0) + 10
-    }).eq("id", room.id);
+  } else {
+    showToast(`${fee} استارز از اعتبار میز بعدی شما کسر شد`);
   }
+
+  await sb.from("rooms").update({
+    prize_pool_stars: Number(room.prize_pool_stars || 0) + 10,
+    admin_revenue_stars: Number(room.admin_revenue_stars || 0) + 10
+  }).eq("id", room.id);
+}
+  
 
   const { error: pErr } = await sb.from("players").upsert(
     {
@@ -256,6 +270,8 @@ async function refreshAll() {
     .limit(100);
 
   renderMessages(msgs || []);
+    await renderWinnerRewardBox();
+  
 }
 
 function getMe() {
@@ -474,3 +490,129 @@ document.getElementById("topBackBtn").addEventListener("click", () => {
 
 const roomFromUrl = new URLSearchParams(window.location.search).get("room") || tg?.initDataUnsafe?.start_param;
 if (roomFromUrl) joinRoomByCode(roomFromUrl);
+function requestStarsInvoice() {
+  return new Promise((resolve) => {
+    const invoiceUrl = window.STARS_INVOICE_URL || STARS_INVOICE_URL;
+    if (!window.Telegram?.WebApp?.openInvoice || !invoiceUrl) {
+      resolve(false);
+      return;
+    }
+    window.Telegram.WebApp.openInvoice(invoiceUrl, (status) => {
+      resolve(status === "paid");
+    });
+  });
+}
+
+async function getMyWalletCredit() {
+  if (!tgUser?.id) return 0;
+  const { data } = await sb
+    .from("player_wallets")
+    .select("credit_stars")
+    .eq("tg_id", tgUser.id)
+    .maybeSingle();
+  return Number(data?.credit_stars || 0);
+}
+
+function calculateMyPrizeShare(room, playersList) {
+  if (!room || room.status !== "ended" || !tgUser?.id) return 0;
+  const pool = Number(room.prize_pool_stars || 0);
+  if (pool <= 0) return 0;
+
+  const listPlayers = Array.isArray(playersList) && playersList.length
+    ? playersList
+    : (Array.isArray(currentPlayers) ? currentPlayers : []);
+
+  const myPlayer = listPlayers.find((p) => Number(p.tg_id) === Number(tgUser.id));
+  if (!myPlayer) return 0;
+
+  const listMsgs = Array.isArray(window.messages)
+    ? window.messages
+    : (Array.isArray(window.lastMessages) ? window.lastMessages : []);
+
+  const lastMsg = listMsgs
+    .slice()
+    .reverse()
+    .find((m) => (m.text || "").includes("برنده") || (m.text || "").includes("پیروز"));
+  const msgText = lastMsg?.text || "";
+  const mafiaWon = msgText.includes("مافیا") && !msgText.includes("شهروند");
+  const townWon = msgText.includes("شهروند") || msgText.includes("شهر");
+
+  const mafiaRoles = ["godfather", "mafia", "simple_mafia", "mafia_doctor", "negotiator"];
+  let winners = [];
+
+  if (mafiaWon) {
+    winners = listPlayers.filter((p) =>
+      mafiaRoles.includes(String(p.role || "").toLowerCase())
+    );
+  } else if (townWon) {
+    winners = listPlayers.filter(
+      (p) => !mafiaRoles.includes(String(p.role || "").toLowerCase())
+    );
+  } else {
+    winners = listPlayers.filter((p) => Boolean(p.is_alive));
+  }
+
+  const amIWinner = winners.some((w) => Number(w.tg_id) === Number(tgUser.id));
+  if (!amIWinner || winners.length === 0) return 0;
+
+  return Math.max(1, Math.floor(pool / winners.length));
+}
+
+async function renderWinnerRewardBox() {
+  const box = document.getElementById("winnerRewardBox");
+  const badge = document.getElementById("winnerRewardAmountBadge");
+  const actions = document.getElementById("winnerRewardActions");
+  const statusEl = document.getElementById("winnerRewardStatusText");
+  if (!box || !currentRoom || !tgUser?.id) return;
+
+  const share = calculateMyPrizeShare(currentRoom, currentPlayers);
+  if (share <= 0) {
+    box.classList.add("hidden");
+    return;
+  }
+
+  box.classList.remove("hidden");
+  badge.textContent = `${share} ⭐`;
+
+  const { data: existingClaim } = await sb
+    .from("reward_claims")
+    .select("choice, amount_stars")
+    .eq("room_id", currentRoom.id)
+    .eq("tg_id", tgUser.id)
+    .maybeSingle();
+
+  if (existingClaim) {
+    actions.classList.add("hidden");
+    statusEl.classList.remove("hidden");
+    statusEl.textContent =
+      existingClaim.choice === "keep_next_table"
+        ? `✓ ${existingClaim.amount_stars} استارز برای ورود به میز بعدی ذخیره شده است.`
+        : `✓ درخواست برداشت ${existingClaim.amount_stars} استارز ثبت شده است.`;
+    return;
+  }
+
+  actions.classList.remove("hidden");
+  statusEl.classList.add("hidden");
+
+  document.getElementById("btnKeepNextTable").onclick = () => submitRewardChoice(share, "keep_next_table");
+  document.getElementById("btnRequestWithdraw").onclick = () => submitRewardChoice(share, "withdraw");
+}
+
+async function submitRewardChoice(amount, choice) {
+  if (!currentRoom || !tgUser?.id) return;
+  const { data, error } = await sb.rpc("claim_winner_reward", {
+    p_room_id: currentRoom.id,
+    p_room_code: currentRoom.code || "",
+    p_tg_id: tgUser.id,
+    p_full_name: tgUser.first_name || "بازیکن",
+    p_username: tgUser.username || "",
+    p_amount: amount,
+    p_choice: choice
+  });
+
+  if (error) return showToast("خطا در ثبت انتخاب: " + error.message);
+  if (!data?.ok) return showToast(data?.error || "امکان ثبت انتخاب وجود ندارد");
+
+  showToast(data.message);
+  await renderWinnerRewardBox();
+}
